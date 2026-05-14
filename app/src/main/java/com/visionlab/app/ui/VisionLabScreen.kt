@@ -9,6 +9,14 @@ import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -29,11 +37,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
@@ -118,66 +126,34 @@ fun VisionLabScreen(
             )
         },
     ) { padding ->
+        var hasFrontCamera by remember { mutableStateOf(false) }
+        LaunchedEffect(context) {
+            val p = ProcessCameraProvider.getInstance(context).get()
+            hasFrontCamera = p.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+        }
+
+        val pickGallery = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia(),
+            onResult = { uri -> uri?.let { vm.loadGalleryUri(it) } },
+        )
+
+        var panelModeExpanded by remember { mutableStateOf(true) }
+        var panelModelExpanded by remember { mutableStateOf(true) }
+        var panelGalleryExpanded by remember { mutableStateOf(true) }
+        var panelDetectExpanded by remember { mutableStateOf(false) }
+        var panelPerfExpanded by remember { mutableStateOf(false) }
+        var panelCameraExpanded by remember { mutableStateOf(false) }
+
+        var modelMenuExpanded by remember { mutableStateOf(false) }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .safeDrawingPadding()
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                SegmentedButton(
-                    selected = state.mode == RunMode.LIVE,
-                    onClick = { vm.setMode(RunMode.LIVE) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
-                ) { Text("Live") }
-                SegmentedButton(
-                    selected = state.mode == RunMode.GALLERY,
-                    onClick = { vm.setMode(RunMode.GALLERY) },
-                    shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
-                ) { Text("Galleria") }
-            }
-
-            var modelMenuExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = modelMenuExpanded,
-                onExpandedChange = { modelMenuExpanded = !modelMenuExpanded },
-            ) {
-                OutlinedTextField(
-                    modifier = Modifier
-                        .menuAnchor()
-                        .fillMaxWidth(),
-                    readOnly = true,
-                    value = state.selectedModel.displayName,
-                    onValueChange = {},
-                    label = { Text("Modello") },
-                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded) },
-                )
-                ExposedDropdownMenu(
-                    expanded = modelMenuExpanded,
-                    onDismissRequest = { modelMenuExpanded = false },
-                ) {
-                    ModelRegistry.models.forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text(m.displayName) },
-                            onClick = {
-                                modelMenuExpanded = false
-                                vm.setSelectedModel(m)
-                            },
-                        )
-                    }
-                }
-            }
-
-            ConfidenceThresholdRow(vm = vm, state = state)
-
-            MetricsBar(
-                fps = state.fps,
-                inferMs = state.inferMs,
-                message = state.infoMessage,
-            )
-
+            // Metà schermo: anteprima camera o immagine galleria
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -191,48 +167,240 @@ fun VisionLabScreen(
                                 modifier = Modifier.align(Alignment.Center),
                             )
                         } else {
-                            var hasFrontCamera by remember { mutableStateOf(false) }
-                            LaunchedEffect(context) {
-                                val p = ProcessCameraProvider.getInstance(context).get()
-                                hasFrontCamera = p.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
-                            }
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                LiveCameraControlPanel(
+                            Box(Modifier.fillMaxSize()) {
+                                CameraPreviewSection(
+                                    lifecycleOwner = lifecycleOwner,
                                     vm = vm,
-                                    state = state,
-                                    hasFrontCamera = hasFrontCamera,
+                                    onFrame = { bitmap, rotationDegrees ->
+                                        vm.submitCameraFrame(bitmap, rotationDegrees)
+                                    },
                                 )
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                ) {
-                                    CameraPreviewSection(
-                                        lifecycleOwner = lifecycleOwner,
-                                        vm = vm,
-                                        onFrame = { bitmap, rotationDegrees ->
-                                            vm.submitCameraFrame(bitmap, rotationDegrees)
-                                        },
+                                if (state.frameW > 0 && state.frameH > 0) {
+                                    DetectionOverlay(
+                                        detections = state.detections,
+                                        frameW = state.frameW,
+                                        frameH = state.frameH,
+                                        modifier = Modifier.fillMaxSize(),
                                     )
-                                    if (state.frameW > 0 && state.frameH > 0) {
-                                        DetectionOverlay(
-                                            detections = state.detections,
-                                            frameW = state.frameW,
-                                            frameH = state.frameH,
-                                            modifier = Modifier.fillMaxSize(),
-                                        )
-                                    }
                                 }
                             }
                         }
                     }
                     RunMode.GALLERY -> {
-                        GallerySection(vm = vm, state = state)
+                        GalleryImagePane(state = state)
                     }
                 }
+            }
+
+            // Metà schermo: controlli in pannelli collassabili
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CollapsiblePanel(
+                    title = "Modalità",
+                    expanded = panelModeExpanded,
+                    onExpandedChange = { panelModeExpanded = it },
+                ) {
+                    SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                        SegmentedButton(
+                            selected = state.mode == RunMode.LIVE,
+                            onClick = { vm.setMode(RunMode.LIVE) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                        ) { Text("Live") }
+                        SegmentedButton(
+                            selected = state.mode == RunMode.GALLERY,
+                            onClick = { vm.setMode(RunMode.GALLERY) },
+                            shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                        ) { Text("Galleria") }
+                    }
+                }
+
+                CollapsiblePanel(
+                    title = "Modello",
+                    expanded = panelModelExpanded,
+                    onExpandedChange = { panelModelExpanded = it },
+                ) {
+                    ExposedDropdownMenuBox(
+                        expanded = modelMenuExpanded,
+                        onExpandedChange = { modelMenuExpanded = !modelMenuExpanded },
+                    ) {
+                        OutlinedTextField(
+                            modifier = Modifier
+                                .menuAnchor()
+                                .fillMaxWidth(),
+                            readOnly = true,
+                            value = state.selectedModel.displayName,
+                            onValueChange = {},
+                            label = { Text("Modello TFLite") },
+                            trailingIcon = {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelMenuExpanded)
+                            },
+                        )
+                        ExposedDropdownMenu(
+                            expanded = modelMenuExpanded,
+                            onDismissRequest = { modelMenuExpanded = false },
+                        ) {
+                            ModelRegistry.models.forEach { m ->
+                                DropdownMenuItem(
+                                    text = { Text(m.displayName) },
+                                    onClick = {
+                                        modelMenuExpanded = false
+                                        vm.setSelectedModel(m)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (state.mode == RunMode.GALLERY) {
+                    CollapsiblePanel(
+                        title = "Galleria",
+                        expanded = panelGalleryExpanded,
+                        onExpandedChange = { panelGalleryExpanded = it },
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    pickGallery.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
+                                    )
+                                },
+                            ) {
+                                Text("Scegli foto")
+                            }
+                            if (state.galleryBitmap != null) {
+                                Button(onClick = { vm.clearGallery() }) {
+                                    Text("Pulisci")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                CollapsiblePanel(
+                    title = "Rilevamento",
+                    expanded = panelDetectExpanded,
+                    onExpandedChange = { panelDetectExpanded = it },
+                ) {
+                    ConfidenceThresholdRow(vm = vm, state = state)
+                }
+
+                CollapsiblePanel(
+                    title = "Prestazioni",
+                    expanded = panelPerfExpanded,
+                    onExpandedChange = { panelPerfExpanded = it },
+                ) {
+                    MetricsBar(
+                        fps = state.fps,
+                        inferMs = state.inferMs,
+                        message = state.infoMessage,
+                    )
+                }
+
+                if (state.mode == RunMode.LIVE && hasCameraPermission) {
+                    CollapsiblePanel(
+                        title = "Fotocamera",
+                        expanded = panelCameraExpanded,
+                        onExpandedChange = { panelCameraExpanded = it },
+                    ) {
+                        LiveCameraControlPanel(
+                            vm = vm,
+                            state = state,
+                            hasFrontCamera = hasFrontCamera,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollapsiblePanel(
+    title: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+        shape = MaterialTheme.shapes.medium,
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onExpandedChange(!expanded) }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = if (expanded) "▼" else "▶",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    content()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GalleryImagePane(state: VisionUiState) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        val bmp = state.galleryBitmap
+        if (bmp == null) {
+            Text(
+                text = "Usa il pannello «Galleria» sotto per scegliere un'immagine.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(16.dp),
+            )
+        } else {
+            Image(
+                bitmap = bmp.asImageBitmap(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Fit,
+            )
+            if (state.frameW > 0 && state.frameH > 0) {
+                DetectionOverlay(
+                    detections = state.detections,
+                    frameW = state.frameW,
+                    frameH = state.frameH,
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }
@@ -294,7 +462,6 @@ private fun LiveCameraControlPanel(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text("Fotocamera", style = MaterialTheme.typography.labelLarge)
         SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
             SegmentedButton(
                 selected = !state.useFrontCamera,
@@ -504,67 +671,6 @@ private fun CameraPreviewSection(
                 state.isoMin,
                 state.isoMax,
             )
-        }
-    }
-}
-
-@Composable
-private fun GallerySection(
-    vm: VisionLabViewModel,
-    state: VisionUiState,
-) {
-    val pick = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia(),
-        onResult = { uri -> uri?.let { vm.loadGalleryUri(it) } },
-    )
-
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = {
-                    pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                },
-            ) {
-                Text("Scegli foto")
-            }
-            if (state.galleryBitmap != null) {
-                Button(onClick = { vm.clearGallery() }) {
-                    Text("Pulisci")
-                }
-            }
-        }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        ) {
-            val bmp = state.galleryBitmap
-            if (bmp == null) {
-                Text(
-                    text = "Seleziona un'immagine…",
-                    modifier = Modifier.align(Alignment.Center),
-                )
-            } else {
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit,
-                )
-
-                if (state.frameW > 0 && state.frameH > 0) {
-                    DetectionOverlay(
-                        detections = state.detections,
-                        frameW = state.frameW,
-                        frameH = state.frameH,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            }
         }
     }
 }
