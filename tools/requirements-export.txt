@@ -1,0 +1,18 @@
+# Dipendenze per export TFLite (Ultralytics: PyTorch -> ONNX -> SavedModel -> TFLite).
+# TensorFlow 2.19 su Windows richiede numpy < 2.2; Ultralytics spesso tira su numpy 2.4 -> conflitto.
+# Installa DOPO requirements.txt, preferibilmente con:
+#   install_export_deps.bat
+# (usa --ignore-installed se numpy risulta corrotto senza RECORD)
+#
+numpy>=1.26.0,<2.2.0
+tensorflow>=2.17.0,<=2.19.0
+setuptools>=70.0.0,<82.0.0
+
+# ONNX -> SavedModel (Ultralytics; import: onnx2tf)
+onnx2tf>=1.26.3,<1.29.0
+tf_keras==2.19.0
+sng4onnx>=1.0.1
+onnx-graphsurgeon>=0.3.26
+ai-edge-litert>=1.2.0
+onnxruntime>=1.16.0
+onnx>=1.12.0,<2.0.0
